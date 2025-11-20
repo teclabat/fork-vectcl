@@ -8515,7 +8515,7 @@ return TCL_OK;
 
 
 } /* zgesvx_ */
-MODULE_SCOPE /* Subroutine */ int dgees_ (Tcl_Interp *interp, char *jobvs, char *sort, L_fp select, integer *n, 	doublereal *a, integer *lda, integer *sdim, doublereal *wr, 	doublereal *wi, doublereal *vs, integer *ldvs, doublereal *work, 	integer *lwork, logical *bwork, integer *info)
+MODULE_SCOPE /* Subroutine */ int dgees_ (Tcl_Interp *interp, char *jobvs, char *sort, L_fp select_fn, integer *n, 	doublereal *a, integer *lda, integer *sdim, doublereal *wr, 	doublereal *wi, doublereal *vs, integer *ldvs, doublereal *work, 	integer *lwork, logical *bwork, integer *info)
 {
     integer a_dim1, a_offset, vs_dim1, vs_offset, i__1, i__2, i__3;
 
@@ -8717,7 +8717,7 @@ return TCL_OK;
 	}
 	i__1 = *n;
 	for (i__ = 1; i__ <= i__1; ++i__) {
-	    bwork[i__] = (*select)(&wr[i__], &wi[i__]);
+	    bwork[i__] = ((logical (*)(doublereal*, doublereal*))select_fn)(&wr[i__], &wi[i__]);
 	}
 
 
@@ -8829,7 +8829,7 @@ L20:
 	ip = 0;
 	i__1 = *n;
 	for (i__ = 1; i__ <= i__1; ++i__) {
-	    cursl = (*select)(&wr[i__], &wi[i__]);
+	    cursl = ((logical (*)(doublereal*, doublereal*))select_fn)(&wr[i__], &wi[i__]);
 	    if (wi[i__] == 0.) {
 		if (cursl) {
 		    ++(*sdim);
@@ -8867,7 +8867,7 @@ return TCL_OK;
 
 
 } /* dgees_ */
-MODULE_SCOPE /* Subroutine */ int zgees_ (Tcl_Interp *interp, char *jobvs, char *sort, L_fp select, integer *n, 	doublecomplex *a, integer *lda, integer *sdim, doublecomplex *w, 	doublecomplex *vs, integer *ldvs, doublecomplex *work, integer *lwork, 	 doublereal *rwork, logical *bwork, integer *info)
+MODULE_SCOPE /* Subroutine */ int zgees_ (Tcl_Interp *interp, char *jobvs, char *sort, L_fp select_fn, integer *n, 	doublecomplex *a, integer *lda, integer *sdim, doublecomplex *w, 	doublecomplex *vs, integer *ldvs, doublecomplex *work, integer *lwork, 	 doublereal *rwork, logical *bwork, integer *info)
 {
     integer a_dim1, a_offset, vs_dim1, vs_offset, i__1, i__2;
 
@@ -9062,7 +9062,7 @@ return TCL_OK;
 	}
 	i__1 = *n;
 	for (i__ = 1; i__ <= i__1; ++i__) {
-	    bwork[i__] = (*select)(&w[i__]);
+	    bwork[i__] = ((logical (*)(doublecomplex*))select_fn)(&w[i__]);
 	}
 
 
