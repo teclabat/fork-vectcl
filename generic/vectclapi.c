@@ -23,12 +23,18 @@ const char* Vectcl_InitStubs(Tcl_Interp *interp, const char *version, int exact)
 /* Manipulating datatypes */
 
 NumArrayType NumArray_UpcastType(NumArrayType base) {
-	NumArrayType result = base+1;
-	if (result >= NumArray_SentinelType) {
-		/* signal that we don't have a type left */
-		result = NumArray_NoType;
+	/* Only cycle through the three types that can be parsed
+	 * from Tcl string representations: Int, Float64, Complex128.
+	 * Fixed-width types (Int8, Uint8, ...) and Complex64 are only
+	 * reachable via explicit conversion functions. */
+	switch (base) {
+		case NumArray_Int:
+			return NumArray_Float64;
+		case NumArray_Float64:
+			return NumArray_Complex128;
+		default:
+			return NumArray_NoType;
 	}
-	return result;
 }
 
 NumArrayType NumArray_UpcastCommonType(NumArrayType type1, NumArrayType type2) {
@@ -896,7 +902,26 @@ int NumArrayCopy(NumArrayInfo *srcinfo, NumArraySharedBuffer *srcbuf,
 	COPYLOOP(double, double)
 	COPYLOOP(NumArray_Complex, NaWideInt)
 	COPYLOOP(NumArray_Complex, double)
-	COPYLOOP(NumArray_Complex, NumArray_Complex) {
+	COPYLOOP(NumArray_Complex, NumArray_Complex)
+	if (destinfo->type == srcinfo->type) {
+		/* Generic same-type copy using byte-level memcpy.
+		 * Handles all fixed-width types (int8, uint8, ..., bool, float32, complex64). */
+		const size_t elsize = NumArrayType_SizeOf(srcinfo->type);
+		const index_t srcbpitch = NumArrayIteratorRowPitch(&srcit);
+		const index_t destbpitch = NumArrayIteratorRowPitch(&destit);
+		char *result = NumArrayIteratorDeRefPtr(&destit);
+		char *opptr = NumArrayIteratorDeRefPtr(&srcit);
+		while (result) {
+			index_t i;
+			for (i=0; i<length; i++) {
+				memcpy(result, opptr, elsize);
+				opptr += srcbpitch;
+				result += destbpitch;
+			}
+			result = NumArrayIteratorAdvanceRow(&destit);
+			opptr = NumArrayIteratorAdvanceRow(&srcit);
+		}
+	} else {
 		goto cleanit;
 	}
 
@@ -943,11 +968,33 @@ int NumArraySetValue(NumArrayInfo *destinfo, NumArraySharedBuffer *destbuf, NumA
 
 	NumArrayIterator destit;
 	NumArrayIteratorInit(destinfo, destbuf, &destit);
-	
+
 	/* copy/conversion code for upcasting */
-	
+
+	/* Macro for filling fixed-width integer destination types.
+	 * The value was stored in value.Int by NumArrayGetScalarValueFromObj. */
+	#define SETVALUE_FIXEDINT(CTYPE, NATYPE) \
+	if (destinfo->type == NATYPE) { \
+		CTYPE fillval = (CTYPE) value.value.Int; \
+		for (; !NumArrayIteratorFinished(&destit); NumArrayIteratorAdvance(&destit)) { \
+			*(CTYPE *) NumArrayIteratorDeRefPtr(&destit) = fillval; \
+		} \
+	} else
+
+	SETVALUE_FIXEDINT(int, NumArray_Bool)
+	SETVALUE_FIXEDINT(int8_t, NumArray_Int8)
+	SETVALUE_FIXEDINT(uint8_t, NumArray_Uint8)
+	SETVALUE_FIXEDINT(int16_t, NumArray_Int16)
+	SETVALUE_FIXEDINT(uint16_t, NumArray_Uint16)
+	SETVALUE_FIXEDINT(int32_t, NumArray_Int32)
+	SETVALUE_FIXEDINT(uint32_t, NumArray_Uint32)
+	SETVALUE_FIXEDINT(int64_t, NumArray_Int64)
+	SETVALUE_FIXEDINT(uint64_t, NumArray_Uint64)
+
+	#undef SETVALUE_FIXEDINT
+
 	if (destinfo -> type == NumArray_Int) {
-		
+
 		NaWideInt intvalue;
 		if (value.type == NumArray_Int) {
 			intvalue = value.value.Int;
@@ -955,11 +1002,24 @@ int NumArraySetValue(NumArrayInfo *destinfo, NumArraySharedBuffer *destbuf, NumA
 			goto cleanit;
 		}
 
-		for (; ! NumArrayIteratorFinished(&destit); 
+		for (; ! NumArrayIteratorFinished(&destit);
 			NumArrayIteratorAdvance(&destit)) {
 				*(NaWideInt *) NumArrayIteratorDeRefPtr(&destit) = intvalue;
 		}
-	
+
+	} else if (destinfo -> type == NumArray_Float32) {
+		float fltvalue;
+		if (value.type == NumArray_Float32 || value.type == NumArray_Float64) {
+			fltvalue = (float) value.value.Float64;
+		} else {
+			fltvalue = (float) value.value.Int;
+		}
+
+		for (; ! NumArrayIteratorFinished(&destit);
+			NumArrayIteratorAdvance(&destit)) {
+				*(float *) NumArrayIteratorDeRefPtr(&destit) = fltvalue;
+		}
+
 	} else if (destinfo -> type == NumArray_Float64) {
 		double dblvalue;
 		if (value.type == NumArray_Int) {
@@ -970,10 +1030,26 @@ int NumArraySetValue(NumArrayInfo *destinfo, NumArraySharedBuffer *destbuf, NumA
 			goto cleanit;
 		}
 
-		
-		for (; ! NumArrayIteratorFinished(&destit); 
+
+		for (; ! NumArrayIteratorFinished(&destit);
 			NumArrayIteratorAdvance(&destit)) {
 				*(double *) NumArrayIteratorDeRefPtr(&destit) = dblvalue;
+		}
+
+	} else if (destinfo -> type == NumArray_Complex64) {
+		NumArray_ComplexFloat cfvalue;
+		if (value.type == NumArray_Complex64 || value.type == NumArray_Complex128) {
+			cfvalue = NumArray_mkComplexFloat((float) value.value.Complex128.re,
+				(float) value.value.Complex128.im);
+		} else if (value.type == NumArray_Float32 || value.type == NumArray_Float64) {
+			cfvalue = NumArray_mkComplexFloat((float) value.value.Float64, 0.0f);
+		} else {
+			cfvalue = NumArray_mkComplexFloat((float) value.value.Int, 0.0f);
+		}
+
+		for (; ! NumArrayIteratorFinished(&destit);
+			NumArrayIteratorAdvance(&destit)) {
+				*(NumArray_ComplexFloat *) NumArrayIteratorDeRefPtr(&destit) = cfvalue;
 		}
 
 	} else if (destinfo -> type == NumArray_Complex128) {
@@ -989,8 +1065,8 @@ int NumArraySetValue(NumArrayInfo *destinfo, NumArraySharedBuffer *destbuf, NumA
 		} else {
 			goto cleanit;
 		}
-			
-		for (; ! NumArrayIteratorFinished(&destit); 
+
+		for (; ! NumArrayIteratorFinished(&destit);
 			NumArrayIteratorAdvance(&destit)) {
 				*(NumArray_Complex *) NumArrayIteratorDeRefPtr(&destit) = cplxvalue;
 		}
@@ -1000,7 +1076,7 @@ int NumArraySetValue(NumArrayInfo *destinfo, NumArraySharedBuffer *destbuf, NumA
 
 
 	NumArrayIteratorFree(&destit);
-	
+
 	return TCL_OK;
 
 cleanit:
@@ -1022,18 +1098,55 @@ int NumArrayGetScalarValueFromObj(Tcl_Interp *interp, Tcl_Obj* naObj, NumArray_V
 		bufptr += info->offset;
 
 		value -> type = info -> type;
-		switch (value -> type) {
+		switch (info -> type) {
 			case NumArray_Int:
 				value->value.Int = *((NaWideInt*) bufptr);
+				break;
+			case NumArray_Bool:
+				value->value.Int = *((int*) bufptr);
+				break;
+			case NumArray_Int8:
+				value->value.Int = *((int8_t*) bufptr);
+				break;
+			case NumArray_Uint8:
+				value->value.Int = *((uint8_t*) bufptr);
+				break;
+			case NumArray_Int16:
+				value->value.Int = *((int16_t*) bufptr);
+				break;
+			case NumArray_Uint16:
+				value->value.Int = *((uint16_t*) bufptr);
+				break;
+			case NumArray_Int32:
+				value->value.Int = *((int32_t*) bufptr);
+				break;
+			case NumArray_Uint32:
+				value->value.Int = *((uint32_t*) bufptr);
+				break;
+			case NumArray_Int64:
+				value->value.Int = *((int64_t*) bufptr);
+				break;
+			case NumArray_Uint64:
+				value->value.Int = (NaWideInt) *((uint64_t*) bufptr);
+				break;
+			case NumArray_Float32:
+				value->value.Float64 = *((float*) bufptr);
 				break;
 			case NumArray_Float64:
 				value->value.Float64 = *((double*) bufptr);
 				break;
+			case NumArray_Complex64: {
+				NumArray_ComplexFloat *cf = (NumArray_ComplexFloat*) bufptr;
+				value->value.Complex128 = NumArray_mkComplex(cf->re, cf->im);
+				break;
+			}
 			case NumArray_Complex128:
 				value->value.Complex128 = *((NumArray_Complex*) bufptr);
 				break;
 			default:
-				Tcl_SetResult(interp, "Unknown data type in array", NULL);
+				if (interp) {
+					Tcl_SetResult(interp, "Unknown data type in array", NULL);
+				}
 				return TCL_ERROR;
 		}
 		return TCL_OK;

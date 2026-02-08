@@ -256,12 +256,48 @@ Changed `char* buf` to `const char* buf` to match `Tcl_GetStringFromObj` return 
 | `generic/bcexecute.c` | `Tcl_Size` for `Tcl_GetByteArrayFromObj` and `Tcl_ListObjLength` |
 | `generic/vmparser.c` | `CONST` to `const`, `Tcl_Size`, `const char*` for buf, cast for `rde_param_data` |
 
+### 6. Fixed-Width Type Support in Core Operations
+
+Several core functions only handled the three base types (Int, Float64, Complex128), causing segfaults or spurious "Unknown data type" output when fixed-width types (Bool, Int8, Uint8, ..., Uint64, Float32, Complex64) were used in operations like `hstack`.
+
+#### NumArray_UpcastType — Skip Fixed-Width Types
+
+Changed from linear enum increment (`base+1`) to direct chain `Int → Float64 → Complex128`. Fixed-width types are only reachable via explicit conversion functions, not from Tcl string parsing. This eliminates 9–10 spurious "Unknown data type" printf messages per type-retry cycle.
+
+**Files:** `generic/vectclapi.c`
+
+#### NumArrayGetScalarValueFromObj — All Types
+
+Extended the switch to read all fixed-width types from the buffer. Integer-like types are stored in the `value.Int` union slot, Float32 in `value.Float64`, Complex64 in `value.Complex128`. Also guarded the default case against `interp == NULL` to prevent segfault.
+
+**Files:** `generic/vectclapi.c`
+
+#### NumArraySetValue — All Destination Types
+
+Added fill loops for all fixed-width destination types using a macro-generated pattern for integer types and explicit blocks for Float32 and Complex64.
+
+**Files:** `generic/vectclapi.c`
+
+#### NumArrayCopy — Generic Same-Type Copy
+
+Added a byte-level `memcpy` copy path for same-type source and destination, handling all fixed-width types that the existing typed COPYLOOP macros did not cover.
+
+**Files:** `generic/vectclapi.c`
+
+#### createNumArraySharedBufferFromTypedList — Proper Error
+
+Replaced bare `printf("Unknown data type\n")` with `RESULTPRINTF(...)` to produce a proper Tcl error message.
+
+**Files:** `generic/vectcl.c`
+
 ## Test Results
 
 ```
-all.tcl:  Total  251  Passed  251  Skipped  0  Failed  0
+all.tcl:  Total  257  Passed  257  Skipped  0  Failed  0
 ```
+
+6 new tests (`hstack-fixed-1` through `hstack-fixed-6`) cover `hstack` with uint8, int8, int16, int32, uint64, and bool operands.
 
 ## Backward Compatibility
 
-This is a **Tcl 9 only** build. No backward compatibility with Tcl 8.6 is maintained.
+Tcl 8.6 compatibility is maintained via shims in `generic/vectcl.h`: `Tcl_Size` typedef, `Tcl_InitStringRep` static inline, and a `TclFreeIntRep` macro for Tcl < 9.

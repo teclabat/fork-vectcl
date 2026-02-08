@@ -649,6 +649,41 @@ test datatypes bool-4 -body {
 } -result true
 
 test datatypes bool-5 -body {
-	 vexpr {bool({{0 1} {1 0}})} 
+	 vexpr {bool({{0 1} {1 0}})}
 } -result {{false true} {true false}}
+
+test datatypes hstack-fixed-1 -body {
+	set a [vexpr {uint8(5)}]
+	vexpr {hstack(a, a)}
+} -result {{5u8 5u8}}
+
+test datatypes hstack-fixed-2 -body {
+	set a [vexpr {int8(3)}]
+	set b [vexpr {int8(7)}]
+	vexpr {hstack(a, b)}
+} -result {{3i8 7i8}}
+
+test datatypes hstack-fixed-3 -body {
+	set a [vexpr {int16(100)}]
+	set b [vexpr {int16(200)}]
+	vexpr {hstack(a, b)}
+} -result {{100i16 200i16}}
+
+test datatypes hstack-fixed-4 -body {
+	set a [vexpr {int32(1000)}]
+	set b [vexpr {int32(2000)}]
+	vexpr {hstack(a, b)}
+} -result {{1000i32 2000i32}}
+
+test datatypes hstack-fixed-5 -body {
+	set a [vexpr {uint64(42)}]
+	set b [vexpr {uint64(99)}]
+	vexpr {hstack(a, b)}
+} -result {{42u64 99u64}}
+
+test datatypes hstack-fixed-6 -body {
+	set a [vexpr {bool(1)}]
+	set b [vexpr {bool(0)}]
+	vexpr {hstack(a, b)}
+} -result {{true false}}
 

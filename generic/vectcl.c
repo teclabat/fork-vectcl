@@ -1789,8 +1789,8 @@ static int createNumArraySharedBufferFromTypedList(Tcl_Interp *interp, Tcl_Obj *
 				bufptr += pitch;
 				break;
 			default:
-				/* Error */
-				printf("Unknown data type\n");
+				/* Error - unsupported type for list parsing */
+				RESULTPRINTF(("Unknown data type %d in list conversion", info->type));
 				goto cleanbuffer;
 		} /* end of switch datatype */
 
