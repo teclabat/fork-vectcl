@@ -26,7 +26,7 @@ extern const Tcl_ObjType* VecTclNumArrayObjType;
  * etc. should be identical. TODO: Replace later with real stubs */
 char* Vectcl_InitStubs(Tcl_Interp *interp, const char *version, int exact);
 
-typedef long int NaWideInt;
+typedef long long NaWideInt;
 
 /* Possible datatypes */
 typedef enum {

@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Initialized in Vectcl_Init() via temp-object snooping */
+extern const Tcl_ObjType * tclDoubleType;
+extern const Tcl_ObjType * tclIntType;
+
 /*
  * Functions hndling the Tcl_ObjType Complex
  */
@@ -52,23 +56,13 @@ static void freeComplexInternalRep(Tcl_Obj *objPtr) {
  *----------------------------------------------------------------
  */
 
-#define TclFreeIntRep(objPtr) \
-    if ((objPtr)->typePtr != NULL) { \
-	if ((objPtr)->typePtr->freeIntRepProc != NULL) { \
-	    (objPtr)->typePtr->freeIntRepProc(objPtr); \
-	} \
-	(objPtr)->typePtr = NULL; \
-    }
+#define TclFreeIntRep(objPtr) Tcl_FreeInternalRep(objPtr)
 
 
 static int  setComplexFromAny(Tcl_Interp *interp, Tcl_Obj *objPtr) {
 	/* Parse complex number out of the string rep */
 	NumArray_Complex c;
 
-	/* Maybe this should go into a static const array */
-	const Tcl_ObjType * tclDoubleType = Tcl_GetObjType("double");
-	const Tcl_ObjType * tclIntType = Tcl_GetObjType("int");
-	
 	if (objPtr -> typePtr == tclIntType) {
 		int value;
 		if (Tcl_GetIntFromObj(interp, objPtr, &value) != TCL_OK) {
@@ -86,7 +80,7 @@ static int  setComplexFromAny(Tcl_Interp *interp, Tcl_Obj *objPtr) {
 	} else {
 		/* Cast from string representation */
 	
-		if (NumArray_ParseComplex(interp, objPtr->bytes, &c) != TCL_OK) {
+		if (NumArray_ParseComplex(interp, Tcl_GetString(objPtr), &c) != TCL_OK) {
 			return TCL_ERROR;
 		}
 	}
@@ -104,9 +98,7 @@ static void updateStringOfComplex(Tcl_Obj *objPtr) {
 	NumArray_Complex c = *((NumArray_Complex *) objPtr -> internalRep.otherValuePtr);
 
 	NumArray_PrintComplex(c, buffer);
-	objPtr -> length = strlen(buffer);
-	objPtr -> bytes = ckalloc(objPtr->length+1);
-	memcpy(objPtr -> bytes, buffer, objPtr -> length+1);
+	Tcl_InitStringRep(objPtr, buffer, strlen(buffer));
 }
 
 

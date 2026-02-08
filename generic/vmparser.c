@@ -886,7 +886,7 @@ rde_param_i_loc_rewind (RDE_PARAM p)
 	SCOPE void
 rde_param_i_input_next (RDE_PARAM p, int m)
 {
-	int leni;
+	Tcl_Size leni;
 	char* ch;
 	ASSERT_BOUNDS(m,p->numstr);
 	p->CL ++;
@@ -1700,7 +1700,7 @@ PARSERdeleteCmd (ClientData clientData)
 
 static int  COMPLETE (RDE_PARAM p, Tcl_Interp* interp);
 
-static int parser_PARSE  (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj* CONST* objv)
+static int parser_PARSE  (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj *const *objv)
 {
 	int mode;
 	Tcl_Channel chan;
@@ -1723,10 +1723,10 @@ static int parser_PARSE  (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj* CO
 	return COMPLETE (p, interp);
 }
 
-static int parser_PARSET (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj* CONST* objv)
+static int parser_PARSET (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj *const *objv)
 {
-	char* buf;
-	int   len;
+	const char* buf;
+	Tcl_Size   len;
 
 	if (objc != 3) {
 		Tcl_WrongNumArgs (interp, 2, objv, "text");
@@ -1742,12 +1742,12 @@ static int parser_PARSET (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj* CO
 	}
 
 	rde_param_reset (p, NULL);
-	rde_param_data  (p, buf, len);
+	rde_param_data  (p, (char *)buf, len);
 	StartSymbol(p) ; /* Entrypoint for the generated code. */
 	return COMPLETE (p, interp);
 }
 
-static int parser_ERRPOS (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj* CONST* objv)
+static int parser_ERRPOS (RDE_PARAM p, Tcl_Interp* interp, int objc, Tcl_Obj *const *objv)
 {
 	if (objc != 2) {
 		Tcl_WrongNumArgs (interp, 2, objv, "");
@@ -1799,12 +1799,12 @@ static int COMPLETE (RDE_PARAM p, Tcl_Interp* interp)
 	}
 }
 
-static int parser_objcmd (ClientData cd, Tcl_Interp* interp, int objc, Tcl_Obj* CONST* objv)
+static int parser_objcmd (ClientData cd, Tcl_Interp* interp, int objc, Tcl_Obj *const *objv)
 {
 	RDE_PARAM p = (RDE_PARAM) cd;
 	int m, res=TCL_OK;
 
-	static CONST char* methods [] = {
+	static const char* methods [] = {
 		"destroy", "parse", "parset", "errpos", NULL
 	};
 	enum methods {
@@ -1851,7 +1851,7 @@ static int VMathParserCmd (ClientData dummy, Tcl_Interp *interp, int objc, Tcl_O
 	 */
 
 	RDE_PARAM   parser;
-	CONST char* name;
+	const char* name;
 	Tcl_Obj*    fqn;
 	Tcl_CmdInfo ci;
 	Tcl_Command c;

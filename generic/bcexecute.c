@@ -11,7 +11,7 @@ SUBCOMMAND(NumArrayBCExecuteCmd) {
 	int noperands = objc-3;
 	Tcl_Obj *const *operands = objv+3;
 
-	int bclength; 
+	Tcl_Size bclength;
 	unsigned char *bc;
 	bc=Tcl_GetByteArrayFromObj(objv[1], &bclength);
 	
@@ -21,7 +21,7 @@ SUBCOMMAND(NumArrayBCExecuteCmd) {
 	}
 
 	/* Reduction must be a list: operator axis */
-	int llength;
+	Tcl_Size llength;
 	if (Tcl_ListObjLength(interp, objv[2], &llength) != TCL_OK) {
 		return TCL_ERROR;
 	}

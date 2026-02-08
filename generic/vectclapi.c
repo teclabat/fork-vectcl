@@ -1,5 +1,6 @@
 #include "vectclInt.h"
 #include "map.h"
+#include <math.h>
 
 /* This actually isn't a stub file. 
   * It contains the actual implementations out of laziness */
@@ -8,7 +9,7 @@
  * Vectcl_Init or Vectcl_InitStubs */
 const Tcl_ObjType* VecTclNumArrayObjType;
 
-char* Vectcl_InitStubs(Tcl_Interp *interp, const char *version, int exact) {
+const char* Vectcl_InitStubs(Tcl_Interp *interp, const char *version, int exact) {
 	/* Ignore version for now */
 	VecTclNumArrayObjType = Tcl_GetObjType("NumArray");
 	if (!VecTclNumArrayObjType) {
@@ -78,6 +79,30 @@ int NumArrayConvertToType(Tcl_Interp *interp, Tcl_Obj *naObj, NumArrayType type,
 	NumArrayIteratorInit(convinfo, convbuf, &convit);
 	/* The new buffer is in canonical form, 
 	 * therefore simply advance the pointer at every element */
+
+	/* Special case: Float64 -> Int64/Uint64 with wrapping for out-of-range values.
+	 * Direct C casts of out-of-range doubles to int64_t are undefined behavior. */
+	if (info->type == NumArray_Float64 && (type == NumArray_Int64 || type == NumArray_Uint64)) {
+		if (type == NumArray_Int64) {
+			int64_t *bufptr = NumArrayIteratorDeRefPtr(&convit);
+			for (; !NumArrayIteratorFinished(&it); NumArrayIteratorAdvance(&it)) {
+				double val = *((double*)NumArrayIteratorDeRefPtr(&it));
+				double mod = fmod(val, 18446744073709551616.0);
+				if (mod >= 9223372036854775808.0) mod -= 18446744073709551616.0;
+				if (mod < -9223372036854775808.0) mod += 18446744073709551616.0;
+				*bufptr++ = (int64_t)mod;
+			}
+		} else {
+			uint64_t *bufptr = NumArrayIteratorDeRefPtr(&convit);
+			for (; !NumArrayIteratorFinished(&it); NumArrayIteratorAdvance(&it)) {
+				double val = *((double*)NumArrayIteratorDeRefPtr(&it));
+				double mod = fmod(val, 18446744073709551616.0);
+				if (mod < 0.0) mod += 18446744073709551616.0;
+				*bufptr++ = (uint64_t)mod;
+			}
+		}
+		goto ready;
+	}
 
 	/* all conversions which can be done by the C compiler */
 	#define BUILTINCONV(X, Y) \
@@ -263,7 +288,7 @@ NumArrayInfo* DupNumArrayInfo(NumArrayInfo* src) {
  * {{start stop incr} {start stop incr} ...}
  * for every dimension */
 int NumArrayInfoSlice(Tcl_Interp *interp, NumArrayInfo *info, Tcl_Obj *slicelist, NumArrayInfo **resultPtr) {
-	int slicec; Tcl_Obj **slicev;
+	Tcl_Size slicec; Tcl_Obj **slicev;
 	int d; NumArrayInfo *sliceinfo;
 	
 	if (Tcl_ListObjGetElements(interp, slicelist, &slicec, &slicev)!=TCL_OK) {
@@ -280,7 +305,7 @@ int NumArrayInfoSlice(Tcl_Interp *interp, NumArrayInfo *info, Tcl_Obj *slicelist
 	sliceinfo -> canonical = 0;
 
 	for (d=0; d<slicec; d++) {
-		int llength;
+		Tcl_Size llength;
 		Tcl_Obj **elems;
 		if (Tcl_ListObjGetElements(interp, slicev[d], &llength, &elems) != TCL_OK) {
 			goto cleaninfo;

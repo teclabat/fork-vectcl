@@ -13,6 +13,8 @@
 #include "vmparser.h"
 #include "intconv.h"
 
+#define TCL_NO_TOMMATH_H
+#include <tclTomMath.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -28,13 +30,7 @@
  *----------------------------------------------------------------
  */
 
-#define TclFreeIntRep(objPtr) \
-	if ((objPtr)->typePtr != NULL) { \
-		if ((objPtr)->typePtr->freeIntRepProc != NULL) { \
-			(objPtr)->typePtr->freeIntRepProc(objPtr); \
-		} \
-		(objPtr)->typePtr = NULL; \
-    }
+#define TclFreeIntRep(objPtr) Tcl_FreeInternalRep(objPtr)
 
 
 /*
@@ -73,9 +69,9 @@ static int CreateNumArrayInfoFromList(Tcl_Interp *interp, Tcl_Obj* dimlist, NumA
 	/* Create information with dimensions as in dimlist
 	 * TODO catch out of memory */
 	int d = 0;
-	int nDim;
+	Tcl_Size nDim;
 	index_t *dims = NULL;
-	
+
 	if (Tcl_ListObjLength(interp, dimlist, &nDim) != TCL_OK) {
 		return TCL_ERROR;
 	}
@@ -378,36 +374,21 @@ myTcl_MakeEnsemble(
 static int
 myTcl_GetDoubleFromObj(
     Tcl_Interp *interp,         /* Used for error reporting if not NULL. */
-    register Tcl_Obj *objPtr,	/* The object from which to get a double. */
-    register double *dblPtr)	/* Place to store resulting double. */
+    Tcl_Obj *objPtr,	/* The object from which to get a double. */
+    double *dblPtr)	/* Place to store resulting double. */
 {
-	if (objPtr->typePtr == tclDoubleType) {
-		*dblPtr = (double) objPtr->internalRep.doubleValue;
+	/* Standard Tcl_GetDoubleFromObj rejects NaN. Try it first. */
+	if (Tcl_GetDoubleFromObj(interp, objPtr, dblPtr) == TCL_OK) {
 		return TCL_OK;
 	}
-	
-	if (Tcl_ConvertToType(interp, objPtr, tclDoubleType) != TCL_OK) {
-		return TCL_ERROR;
-	}
-
-	/* This is really buggy & braindead. SetDoubleFromAny fails to convert
-	 * a string into the double type, if it fits into an integer. */
-	
-	if (objPtr->typePtr == tclDoubleType) {
-		*dblPtr = (double) objPtr->internalRep.doubleValue;
-		return TCL_OK;
-	} else if (objPtr->typePtr == tclIntType) {
-		*dblPtr = objPtr->internalRep.longValue;
+	/* Check for NaN/Inf string representation */
+	const char *str = Tcl_GetString(objPtr);
+	char *endptr;
+	*dblPtr = strtod(str, &endptr);
+	if (endptr != str && *endptr == '\0') {
 		return TCL_OK;
 	}
-#ifndef TCL_WIDE_INT_IS_LONG
-	if (objPtr->typePtr == tclWideIntType) {
-		*dblPtr = (double) objPtr->internalRep.wideValue;
-		return TCL_OK;
-	}
-#endif
-	/* Any other case is handled by the standard code */
-	return Tcl_GetDoubleFromObj(interp, objPtr, dblPtr);
+	return TCL_ERROR;
 }
 
 int
@@ -672,7 +653,7 @@ NumArrayGetCmd(
 		}
 		case NumArray_Int: {
 			NaWideInt value = *((NaWideInt *) bufptr);
-			Tcl_SetObjResult(interp, Tcl_NewLongObj(value));
+			Tcl_SetObjResult(interp, Tcl_NewWideIntObj(value));
 			break;
 		}
 		case NumArray_Complex128: {
@@ -1201,7 +1182,7 @@ static void FreeNumArrayInternalRep(Tcl_Obj *naPtr) {
 static int
 SingletonDimension(Tcl_Obj* list) {
 	/* test a list for singleton dimension */
-	int length; int llength; int lengthFirstElement;
+	Tcl_Size length; Tcl_Size llength; Tcl_Size lengthFirstElement;
 	Tcl_Obj* first;
 	
 	Tcl_GetStringFromObj(list, &length);
@@ -1228,7 +1209,7 @@ ScanNumArrayDimensionsFromValue(Tcl_Interp *interp, Tcl_Obj* valobj, Tcl_Obj **r
 
 
 	dimlist = Tcl_NewListObj(0, NULL);
-	int firstdim;
+	Tcl_Size firstdim;
 	
 	/* Try if this is already a NumArray */
 	if (valobj->typePtr == &NumArrayTclType) {
@@ -1286,7 +1267,7 @@ ScanNumArrayDimensionsFromValue(Tcl_Interp *interp, Tcl_Obj* valobj, Tcl_Obj **r
 			break;
 		} else if (itobj -> typePtr == tclListType) {
 			/* there is one more level */
-			int length;
+			Tcl_Size length;
 			Tcl_Obj* next;
 			if (Tcl_ListObjLength(interp, itobj, &length) != TCL_OK) {
 				goto cleanobj;
@@ -1310,12 +1291,12 @@ ScanNumArrayDimensionsFromValue(Tcl_Interp *interp, Tcl_Obj* valobj, Tcl_Obj **r
 		} else {
 			/* treat everything else as a string */
 			double dummy_float64;
-			long dummy_long;
+			Tcl_WideInt dummy_long;
 			NumArray_Complex dummy_complex128;
 			/* try to convert to int, then double, then complex */
-			if (Tcl_GetLongFromObj(interp, itobj, &dummy_long) == TCL_OK) {
+			if (Tcl_GetWideIntFromObj(interp, itobj, &dummy_long) == TCL_OK) {
 				/* 1st: Try to convert to int. If succeeds, we are at the leaf
-				 * Handle case of a single number, 
+				 * Handle case of a single number,
 				 * else just break out of the loop */
 				if (nDim==0) {
 					nDim=1;
@@ -1325,8 +1306,27 @@ ScanNumArrayDimensionsFromValue(Tcl_Interp *interp, Tcl_Obj* valobj, Tcl_Obj **r
 				break;
 			}
 
+			{
+				/* 2nd: Try bignum. Values exceeding int64 range but fitting
+				 * in 64 bits are stored as NumArray_Int with truncation.
+				 * Larger bignums fall through to double conversion. */
+				mp_int dummy_bignum;
+				if (Tcl_GetBignumFromObj(interp, itobj, &dummy_bignum) == TCL_OK) {
+					int nbits = mp_count_bits(&dummy_bignum);
+					mp_clear(&dummy_bignum);
+					if (nbits <= 64) {
+						if (nDim==0) {
+							nDim=1;
+							Tcl_ListObjAppendElement(interp, dimlist, Tcl_NewIntObj(1));
+						}
+						*dtype = NumArray_Int;
+						break;
+					}
+				}
+			}
+
 			if (myTcl_GetDoubleFromObj(interp, itobj, &dummy_float64) == TCL_OK) {
-				/* 2nd: Try to convert to double. If succeeds, we are at the leaf
+				/* 3nd: Try to convert to double. If succeeds, we are at the leaf
 				 * Handle case of a single number, 
 				 * else just break out of the loop */
 				if (nDim==0) {
@@ -1338,7 +1338,7 @@ ScanNumArrayDimensionsFromValue(Tcl_Interp *interp, Tcl_Obj* valobj, Tcl_Obj **r
 			}
 
 			if (NumArray_GetComplexFromObj(interp, itobj, &dummy_complex128) == TCL_OK) {
-				/* 2nd: Try to convert to double. If succeeds, we are at the leaf
+				/* 4th: Try to convert to double. If succeeds, we are at the leaf
 				 * Handle case of a single number, 
 				 * else just break out of the loop */
 				if (nDim==0) {
@@ -1353,7 +1353,7 @@ ScanNumArrayDimensionsFromValue(Tcl_Interp *interp, Tcl_Obj* valobj, Tcl_Obj **r
 				 * like "foo", can be converted to a single-element list
 				 * if ([string length $foo] == [string length [lindex $foo 0]])
 				 * then we are at the leaf. */
-				int llength;
+				Tcl_Size llength;
 				if (Tcl_ListObjLength(interp, itobj, &llength) != TCL_OK) {
 					goto cleanobj;
 				}
@@ -1743,10 +1743,22 @@ static int createNumArraySharedBufferFromTypedList(Tcl_Interp *interp, Tcl_Obj *
 		switch (info->type) {
 			case NumArray_Int: {
 				Tcl_WideInt temp;
-				if (Tcl_GetWideIntFromObj(interp, matroska[nDim], &temp) != TCL_OK) {
-					goto cleanbuffer;
+				if (Tcl_GetWideIntFromObj(interp, matroska[nDim], &temp) == TCL_OK) {
+					*(NaWideInt *) bufptr = temp;
+				} else {
+					/* Value exceeds int64 range; try bignum and truncate to 64 bits */
+					mp_int bigval;
+					if (Tcl_GetBignumFromObj(interp, matroska[nDim], &bigval) != TCL_OK) {
+						goto cleanbuffer;
+					}
+					uint64_t mag = mp_get_mag_u64(&bigval);
+					if (mp_isneg(&bigval)) {
+						*(NaWideInt *) bufptr = -(NaWideInt)mag;
+					} else {
+						*(NaWideInt *) bufptr = (NaWideInt)mag;
+					}
+					mp_clear(&bigval);
 				}
-				*(NaWideInt *) bufptr = temp;
 				bufptr += pitch;
 				break;
 			}
@@ -1788,7 +1800,7 @@ static int createNumArraySharedBufferFromTypedList(Tcl_Interp *interp, Tcl_Obj *
 
 		/* recalculate matroska list for wrapped-over counters */
 		for (d=d+1; d<=nDim; d++) {
-			int dlength;
+			Tcl_Size dlength;
 			if (Tcl_ListObjLength(interp, matroska[d-1], &dlength) != TCL_OK) {
 				goto cleanbuffer;
 			}
@@ -1871,9 +1883,7 @@ static void UpdateStringOfNumArray(Tcl_Obj *naPtr) {
 	
 	/* handle case of empty array */
 	if (info->dims[0]==0) {
-		naPtr -> length = 0;
-		naPtr -> bytes = ckalloc(1);
-		*(naPtr -> bytes) = '\0';
+		Tcl_InitStringRep(naPtr, NULL, 0);
 		ckfree(counter);
 		ckfree(baseptr);
 		return;
@@ -2063,10 +2073,7 @@ static void UpdateStringOfNumArray(Tcl_Obj *naPtr) {
 
 	/* there should be a way to move */
 	/* the pointer from DString to Tcl_Obj, here use memcpy */
-	naPtr -> length = Tcl_DStringLength(&srep);
-	naPtr -> bytes = Tcl_Alloc(naPtr->length+1);
-	memcpy(naPtr -> bytes, Tcl_DStringValue(&srep), naPtr -> length);
-	naPtr -> bytes[naPtr->length] = '\0';
+	Tcl_InitStringRep(naPtr, Tcl_DStringValue(&srep), Tcl_DStringLength(&srep));
 
 	/* cleanup temp memory */
 	Tcl_DStringFree(&srep);
@@ -2106,8 +2113,8 @@ static int SetListFromNumArray(Tcl_Interp *interp, Tcl_Obj *objPtr) {
 		switch (info->type) {
 			case NumArray_Int:
 				for (; !NumArrayIteratorFinished(&it); NumArrayIteratorAdvance(&it)) {
-					long value = NumArrayIteratorDeRefInt(&it);
-					Tcl_ListObjAppendElement(interp, result, Tcl_NewLongObj(value));
+					NaWideInt value = NumArrayIteratorDeRefInt(&it);
+					Tcl_ListObjAppendElement(interp, result, Tcl_NewWideIntObj(value));
 				}
 				break;
 			case NumArray_Float64:
@@ -2395,7 +2402,7 @@ static inline double fsign(double x) {
 
 #define CMD NumArrayAbs
 #define INTRES NaWideInt
-#define INTOP *result = labs(op);
+#define INTOP *result = llabs(op);
 #define DBLRES double
 #define DBLOP *result = fabs(op);
 #define CPLXRES double
@@ -2676,7 +2683,11 @@ static inline double fsign(double x) {
 int Vectcl_Init(Tcl_Interp* interp) {
 	if (interp == 0) return TCL_ERROR;
 
-	if (Tcl_InitStubs(interp, TCL_VERSION, 0) == NULL) {
+	if (Tcl_InitStubs(interp, "8.6-", 0) == NULL) {
+		return TCL_ERROR;
+	}
+
+	if (Tcl_TomMath_InitStubs(interp, "8.6-") == NULL) {
 		return TCL_ERROR;
 	}
 
@@ -2690,33 +2701,60 @@ int Vectcl_Init(Tcl_Interp* interp) {
 	if (Complex_Init(interp) != TCL_OK) {
 		return TCL_ERROR;
 	}
-	
+
 	/* Initialize expression parser */
 	if (Vmparser_Init(interp) != TCL_OK) {
 		return TCL_ERROR;
 	}
 
 
-	/* casting away const is intended for the dirty hack */
-	tclListType =  (Tcl_ObjType *) Tcl_GetObjType("list");	
+	/* Tcl 9 may return NULL from Tcl_GetObjType for core types.
+	 * Use temp-object snooping as fallback. */
+	tclListType = (Tcl_ObjType *) Tcl_GetObjType("list");
+	if (tclListType == NULL) {
+		Tcl_Obj *tmp = Tcl_NewListObj(0, NULL);
+		Tcl_IncrRefCount(tmp);
+		tclListType = (Tcl_ObjType *)tmp->typePtr;
+		Tcl_DecrRefCount(tmp);
+	}
 	tclDoubleType = Tcl_GetObjType("double");
+	if (tclDoubleType == NULL) {
+		Tcl_Obj *tmp = Tcl_NewDoubleObj(0.0);
+		Tcl_IncrRefCount(tmp);
+		tclDoubleType = tmp->typePtr;
+		Tcl_DecrRefCount(tmp);
+	}
 	tclIntType = Tcl_GetObjType("int");
+	if (tclIntType == NULL) {
+		Tcl_Obj *tmp = Tcl_NewIntObj(0);
+		Tcl_IncrRefCount(tmp);
+		tclIntType = tmp->typePtr;
+		Tcl_DecrRefCount(tmp);
+	}
 #ifndef TCL_WIDE_INT_IS_LONG
 	tclWideIntType = Tcl_GetObjType("wideInt");
+	if (tclWideIntType == NULL) {
+		Tcl_Obj *tmp = Tcl_NewWideIntObj(0);
+		Tcl_IncrRefCount(tmp);
+		tclWideIntType = tmp->typePtr;
+		Tcl_DecrRefCount(tmp);
+	}
 #endif
-	
+
 	#ifdef LIST_INJECT
 	/* copy list object proc from list type */
 	listSetFromAny = tclListType -> setFromAnyProc;
 
-	/* inject list conversion code 
-	 * WARNING may break Tcl 
+	/* inject list conversion code
+	 * WARNING may break Tcl
 	 */
 	tclListType->setFromAnyProc = SetListFromNumArray;
-	Tcl_RegisterObjType(tclListType); 
+	Tcl_RegisterObjType(tclListType);
 	#endif
 
 	return TCL_OK;
 }
+
+int vectcl_Init(Tcl_Interp* interp) { return Vectcl_Init(interp); }
 
 
