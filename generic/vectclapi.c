@@ -1,6 +1,7 @@
 #include "vectclInt.h"
 #include "map.h"
 #include <math.h>
+#include <string.h>
 
 /* This actually isn't a stub file. 
   * It contains the actual implementations out of laziness */
