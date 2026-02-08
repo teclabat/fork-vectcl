@@ -1,4 +1,5 @@
 #include "nacomplex.h"
+#include "vectcl.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -56,7 +57,17 @@ static void freeComplexInternalRep(Tcl_Obj *objPtr) {
  *----------------------------------------------------------------
  */
 
+#if TCL_MAJOR_VERSION >= 9
 #define TclFreeIntRep(objPtr) Tcl_FreeInternalRep(objPtr)
+#else
+#define TclFreeIntRep(objPtr) \
+    if ((objPtr)->typePtr != NULL) { \
+        if ((objPtr)->typePtr->freeIntRepProc != NULL) { \
+            (objPtr)->typePtr->freeIntRepProc(objPtr); \
+        } \
+        (objPtr)->typePtr = NULL; \
+    }
+#endif
 
 
 static int  setComplexFromAny(Tcl_Interp *interp, Tcl_Obj *objPtr) {

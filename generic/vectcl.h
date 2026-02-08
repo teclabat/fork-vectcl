@@ -15,6 +15,34 @@
 #include <stdlib.h>
 #include <stddef.h>
 
+/* Tcl 8.6 compatibility shims */
+#ifndef TCL_SIZE_MAX
+#include <limits.h>
+#ifndef Tcl_Size
+typedef int Tcl_Size;
+#endif
+#define TCL_SIZE_MAX INT_MAX
+#define TCL_SIZE_MODIFIER ""
+#define Tcl_GetSizeIntFromObj Tcl_GetIntFromObj
+#endif
+
+#if TCL_MAJOR_VERSION < 9
+#include <string.h>
+static inline char *Tcl_InitStringRep(Tcl_Obj *objPtr, const char *bytes, unsigned int numBytes) {
+    if (bytes == NULL) {
+        objPtr->bytes = ckalloc(1);
+        objPtr->bytes[0] = '\0';
+        objPtr->length = 0;
+    } else {
+        objPtr->bytes = ckalloc(numBytes + 1);
+        memcpy(objPtr->bytes, bytes, numBytes);
+        objPtr->bytes[numBytes] = '\0';
+        objPtr->length = numBytes;
+    }
+    return objPtr->bytes;
+}
+#endif
+
 typedef ptrdiff_t index_t;
 
 /* data type for VecTcl objects */

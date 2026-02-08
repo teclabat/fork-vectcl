@@ -15,6 +15,9 @@
 
 #define TCL_NO_TOMMATH_H
 #include <tclTomMath.h>
+#ifndef mp_get_mag_u64
+#define mp_get_mag_u64 mp_get_mag_ull
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -30,7 +33,17 @@
  *----------------------------------------------------------------
  */
 
+#if TCL_MAJOR_VERSION >= 9
 #define TclFreeIntRep(objPtr) Tcl_FreeInternalRep(objPtr)
+#else
+#define TclFreeIntRep(objPtr) \
+    if ((objPtr)->typePtr != NULL) { \
+        if ((objPtr)->typePtr->freeIntRepProc != NULL) { \
+            (objPtr)->typePtr->freeIntRepProc(objPtr); \
+        } \
+        (objPtr)->typePtr = NULL; \
+    }
+#endif
 
 
 /*
