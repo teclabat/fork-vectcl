@@ -1340,7 +1340,7 @@ ScanNumArrayDimensionsFromValue(Tcl_Interp *interp, Tcl_Obj* valobj, Tcl_Obj **r
 
 			if (myTcl_GetDoubleFromObj(interp, itobj, &dummy_float64) == TCL_OK) {
 				/* 3nd: Try to convert to double. If succeeds, we are at the leaf
-				 * Handle case of a single number, 
+				 * Handle case of a single number,
 				 * else just break out of the loop */
 				if (nDim==0) {
 					nDim=1;
